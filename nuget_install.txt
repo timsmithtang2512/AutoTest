@@ -1,0 +1,3 @@
+nuget install FlaUI.Core -Version 1.3.0 -OutputDirectory packages
+nuget install FlaUI.UIA2 -Version 1.3.0 -OutputDirectory packages
+nuget install YamlDotNet -Version 3.0.0 -OutputDirectory packages

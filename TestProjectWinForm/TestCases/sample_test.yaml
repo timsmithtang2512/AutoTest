@@ -1,0 +1,19 @@
+TestCases:
+  - Name: "打开记事本并点击菜单"
+    Description: "启动记事本，点击文件菜单中的退出"
+    Steps:
+      - Action: "LaunchApplication"
+        Parameters:
+          appPath: "notepad.exe"
+      - Action: "WaitForWindow"
+        Parameters:
+          title: "无标题 - 记事本"
+          timeout: 5
+      - Action: "FindAndClick"
+        Parameters:
+          controlType: "MenuItem"
+          name: "檔案(F)"
+      - Action: "FindAndClick"
+        Parameters:
+          controlType: "MenuItem"
+          name: "結束(X)"
