@@ -62,7 +62,7 @@
             this.toolStripOpenYAML.Name = "toolStripOpenYAML";
             this.toolStripOpenYAML.Size = new System.Drawing.Size(142, 22);
             this.toolStripOpenYAML.Text = "Open YAML";
-            this.toolStripOpenYAML.Click += new System.EventHandler(this.打开用例ToolStripMenuItem_Click);
+            this.toolStripOpenYAML.Click += new System.EventHandler(this.ToolStripMenuItem_Click);
             // 
             // lstTestCases
             // 

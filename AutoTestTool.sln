@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2010
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestProjectWinForm", "TestProjectWinForm\TestProjectWinForm.csproj", "{BFDFB1C1-CB58-46DC-B68C-70A4651DD123}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoTestTool", "TestProjectWinForm\AutoTestTool.csproj", "{BFDFB1C1-CB58-46DC-B68C-70A4651DD123}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

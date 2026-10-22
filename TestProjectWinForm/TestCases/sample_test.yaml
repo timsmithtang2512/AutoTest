@@ -1,13 +1,13 @@
 TestCases:
-  - Name: "打开记事本并点击菜单"
-    Description: "启动记事本，点击文件菜单中的退出"
+  - Name: "SAnt自動測試"
+    Description: "開啟SAnt,点击AutoTest按鈕測試"
     Steps:
       - Action: "LaunchApplication"
         Parameters:
-          appPath: "notepad.exe"
+          appPath: "C:\Users\G1658117\Desktop\PGM_Temp\BOI_C3137_Build_ERS41_VSR74_LWS47_V1.4.17.1_260514_Judit&LCD_NVMMapv21\SAnt_x64.exe"
       - Action: "WaitForWindow"
         Parameters:
-          title: "无标题 - 记事本"
+          title: "CaseSel"
           timeout: 5
       - Action: "FindAndClick"
         Parameters:

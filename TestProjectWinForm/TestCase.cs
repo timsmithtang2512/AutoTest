@@ -30,6 +30,9 @@ namespace TestProjectWinForm
     {
         public string Action { get; set; }
         public Dictionary<string, string> Parameters { get; set; }
+        public int ControlId { get; set; }  //用於wm_command
+        public int OffsetX { get; set; }    //用於模擬鼠標點擊x坐標的clock_at
+        public int OffsetY { get; set; }    //用於模擬鼠標點擊y坐標的clock_at
     }
 }
 

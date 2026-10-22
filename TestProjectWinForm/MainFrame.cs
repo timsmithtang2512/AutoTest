@@ -7,12 +7,15 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
+
+using System.Runtime.InteropServices; //用於與非託管代碼(win 32 API,Com組件)交互,Dll導入,Marshal類,StructLayoutAttribute,ComImportAttribute等
 using System.IO;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Conditions;
 using FlaUI.UIA2;
 using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 using FlaUI.Core.Tools;
 using System.Threading;
 
@@ -31,6 +34,27 @@ namespace TestProjectWinForm
         private FlaUI.Core.AutomationElements.Window _mainWindow;
 
 
+        //-------------Win32 API-------------
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        const uint WM_COMMAND = 0x0111;
+        const uint WM_KEYDOWN = 0x0100;
+        const uint WM_KEYUP = 0x0101;
+        const int VK_RETURN = 0x0D;
+        const int SW_RESTORE = 9;
+
+
+        //構造函數,用於初始化
         public AutoTestTool()
         {
             InitializeComponent();
@@ -43,7 +67,7 @@ namespace TestProjectWinForm
         #region 事件处理
 
         // 打开用例文件
-        private void 打开用例ToolStripMenuItem_Click(object sender, EventArgs e)
+        private void ToolStripMenuItem_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog ofd = new OpenFileDialog())
             {
@@ -210,11 +234,66 @@ namespace TestProjectWinForm
                     //AppendLog(string.Format("获取窗口: {0}", _mainWindow.Title));
                     break;
 
+                    //扎到并進行點擊
                 case "FindAndClick":
                     string controlType = step.Parameters["controlType"];
                     string name = step.Parameters["name"];
                     PerformFindAndClick(controlType, name);
                     break;
+
+                    //給指定窗口發送命令
+                    // 关键：向主窗口发送 WM_COMMAND，wParam 低位为控件 ID
+                case "wm_command":
+                    timeout = int.Parse(step.Parameters["timeout"]);
+                    _mainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(timeout));
+                    if (_mainWindow == null)
+                    {
+                        AppendLog(string.Format("未获取到主窗口"));
+                        return;
+                    }
+                    IntPtr hwnd = _mainWindow.Properties.NativeWindowHandle.ValueOrDefault;
+                    SendMessage(hwnd, WM_COMMAND, (IntPtr)step.ControlId, IntPtr.Zero);
+                    AppendLog(string.Format("--> 已发送WM_COMMAND:{0}, ID:{1}", WM_COMMAND, step.ControlId));
+                    break;
+
+                    //發送Enter按鈕按下,當窗口默認按下Enter就是點擊OK/確認鍵時使用
+                    // 先让窗口到前台，再发 Enter（MFC 默认按钮会响应）
+                case "send_enter":
+                    timeout = int.Parse(step.Parameters["timeout"]);
+                    _mainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(timeout));
+                    if (_mainWindow == null)
+                    {
+                        AppendLog(string.Format("未获取到主窗口"));
+                        return;
+                    }
+                    hwnd = _mainWindow.Properties.NativeWindowHandle.ValueOrDefault;
+
+                    ShowWindow(hwnd, SW_RESTORE);
+                    SetForegroundWindow(hwnd);
+                    Thread.Sleep(200);
+                    PostMessage(hwnd, WM_KEYDOWN, (IntPtr)VK_RETURN, IntPtr.Zero);
+                    PostMessage(hwnd, WM_KEYUP,   (IntPtr)VK_RETURN, IntPtr.Zero);
+                    AppendLog(string.Format("--> 已发送 Enter"));
+                    break;
+                
+                    //根據窗口位置來模擬按鈕點擊
+                    // 兜底：基于窗口矩形 + 偏移计算坐标后点击
+                case "click_at":
+                    timeout = int.Parse(step.Parameters["timeout"]);
+                    _mainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(timeout));
+                    if (_mainWindow == null)
+                    {
+                        AppendLog(string.Format("未获取到主窗口"));
+                        return;
+                    }
+                    var rect = _mainWindow.Properties.BoundingRectangle.ValueOrDefault;
+                    int x = (int)rect.Left + step.OffsetX;
+                    int y = (int)rect.Top + step.OffsetY;
+                    FlaUI.Core.Input.Mouse.MoveTo(x, y);
+                    FlaUI.Core.Input.Mouse.Click(FlaUI.Core.Input.MouseButton.Left);
+                    AppendLog(string.Format("--> 已点击坐标 ({0},{1})",x,y));
+                    break;
+
 
                 default:
                     AppendLog(string.Format("未知操作: {0}",step.Action));
