@@ -1,3 +1,183 @@
 nuget install FlaUI.Core -Version 1.3.0 -OutputDirectory packages
 nuget install FlaUI.UIA2 -Version 1.3.0 -OutputDirectory packages
 nuget install YamlDotNet -Version 3.0.0 -OutputDirectory packages
+
+针对你的 VS2010 / .NET 4.0 环境，选用 **Tesseract 3.2.0 或 3.3.0** 是可行的，这两个版本都明确标注兼容 `net40`。核心流程是：用 FlaUI 截取按钮区域 → 将 `Bitmap` 转为 Tesseract 可处理的 `Pix` → 以“单行文字”模式识别中文。
+
+---
+
+## 1. 安装 NuGet 包
+
+在 VS2010 的“管理 NuGet 程序包”中搜索 **`Tesseract`**，选择 **3.2.0** 或 **3.3.0** 安装。
+
+装完后，项目里会自动引入 `Tesseract.dll` 以及 Tesseract 的原生依赖。**不要**安装 `Tesseract.Drawing`，因为 3.x 版本内置的 `PixConverter` 已经能处理 `System.Drawing.Bitmap`。
+
+---
+
+## 2. 配置中文语言包
+
+Tesseract 本身不带中文数据，必须手动下载 `chi_sim.traineddata`。
+
+**步骤**：
+1. 从 Tesseract 官方数据仓库下载中文简体语言包（`chi_sim.traineddata`）。
+2. 在项目输出目录（如 `bin\Debug\`）下创建 **`tessdata`** 文件夹。
+3. 将 `chi_sim.traineddata` 放入其中。
+
+> **关键坑**：`TesseractEngine` 的第一个参数指向的是 **`tessdata` 文件夹的路径**，而不是文件夹里面的文件。路径用绝对路径最稳妥，避免“找不到文件”或“路径格式不合法”的错误。
+
+---
+
+## 3. OCR 核心代码
+
+下面是一个完整的 `RecognizeButtonText` 方法，直接接收 `Bitmap` 并返回识别出的文字。
+
+```csharp
+using Tesseract;
+using System.Drawing;
+using System.Drawing.Imaging;
+
+public static string RecognizeButtonText(Bitmap buttonBitmap)
+{
+    // tessdata 文件夹路径（推荐用绝对路径）
+    string tessDataPath = System.IO.Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory, "tessdata");
+
+    // 语言用 "chi_sim+eng"，中文按钮常含英文/数字，混排更稳
+    using (var engine = new TesseractEngine(tessDataPath, "chi_sim+eng", EngineMode.Default))
+    {
+        // 按钮是单行文字，强制 PSM_SINGLE_LINE，避免引擎误判排版
+        engine.SetVariable("tessedit_pageseg_mode", "7");
+
+        // 屏幕截图 DPI 通常为 96，显式告诉引擎，有助于字符尺寸估算
+        engine.SetVariable("user_defined_dpi", "96");
+
+        // 可选：如果按钮文字范围已知，白名单能显著减少误识别
+        // engine.SetVariable("tessedit_char_whitelist", "确定取消关闭开始停止");
+
+        // Bitmap → Pix（Tesseract 3.x 内置 PixConverter）
+        using (var pix = PixConverter.ToPix(buttonBitmap))
+        using (var page = engine.Process(pix))
+        {
+            return (page.GetText() ?? "").Trim();
+        }
+    }
+}
+```
+
+**PSM 模式的选择**：`tessedit_pageseg_mode = "7"` 对应 `PSM_SINGLE_LINE`，专门用于“按钮标签”这类单行文字。如果按钮文字可能折行，改用 `"6"`（`PSM_SINGLE_BLOCK`）。
+
+---
+
+## 4. 与 FlaUI 截图集成
+
+FlaUI 的 `Capture` 类可以直接截取**指定元素**或**指定矩形区域**，返回 `Bitmap`。
+
+```csharp
+using FlaUI.Core.Capturing;
+using System.Drawing;
+
+// 方式 A：如果按钮有独立的 AutomationElement（优先）
+Bitmap bmp = Capture.Element(buttonElement);
+
+// 方式 B：如果自绘按钮没有独立元素，按窗口内偏移截取矩形
+var winRect = _mainWindow.Properties.BoundingRectangle.ValueOrDefault;
+var buttonRect = new Rectangle(
+    (int)winRect.Left + offsetX,
+    (int)winRect.Top + offsetY,
+    buttonWidth,
+    buttonHeight);
+Bitmap bmp = Capture.Rectangle(buttonRect);
+```
+
+拿到 `Bitmap` 后，直接传给上面的 `RecognizeButtonText`。
+
+---
+
+## 5. 接入你的“文字变化检测”轮询
+
+结合之前的 `Retry` 思路，把 OCR 串进去：
+
+```csharp
+// 点击前，先记录基准文字
+Bitmap baseline = CaptureButtonRegion();   // 你的截图封装
+string baselineText = RecognizeButtonText(baseline);
+AppendLog("按钮基准OCR: [" + baselineText + "]");
+
+// 轮询等待文字变化
+var result = FlaUI.Core.Tools.Retry.WhileTrue(
+    () =>
+    {
+        Bitmap current = null;
+        try
+        {
+            current = CaptureButtonRegion();
+            string currentText = RecognizeButtonText(current);
+            bool unchanged = (currentText == baselineText);
+            AppendLog("按钮当前OCR: [" + currentText + "] 未变化=" + unchanged);
+            return unchanged;   // 未变化 → 继续轮询
+        }
+        catch (Exception ex)
+        {
+            AppendLog("OCR轮询异常: " + ex.Message);
+            return true;        // 异常时继续重试
+        }
+        finally
+        {
+            if (current != null) current.Dispose();
+        }
+    },
+    timeout: TimeSpan.FromSeconds(10),
+    interval: TimeSpan.FromMilliseconds(300),
+    throwOnTimeout: true
+);
+```
+
+---
+
+## 6. 提高按钮文字识别率的实操建议
+
+屏幕截图中的按钮文字通常边缘清晰，**不需要二值化**（二值化反而可能引入锯齿）。真正有效的是以下几步：
+
+| 措施 | 做法 |
+|---|---|
+| **只截按钮内部** | 不要带边框和背景，减少无关像素 |
+| **灰度化** | 用 `Graphics` 的 `ColorMatrix` 把 `Bitmap` 转为灰度，Tesseract 对灰度更友好 |
+| **适度放大** | 按钮文字通常偏小，放大 2 倍再识别，Tesseract 准确率会明显提升 |
+| **设置 `user_defined_dpi`** | 屏幕截图固定为 96，显式告知引擎，避免它错误估算字符大小 |
+| **用“变化”而非“精确值”判定** | 核心逻辑是 `currentText != baselineText`，OCR 偶发字符错误不影响状态判定 |
+
+一个简单的灰度化辅助方法（不依赖 OpenCV）：
+
+```csharp
+private static Bitmap ToGrayscale(Bitmap original)
+{
+    var gray = new Bitmap(original.Width, original.Height, PixelFormat.Format24bppRgb);
+    using (var g = Graphics.FromImage(gray))
+    {
+        var cm = new ColorMatrix(new float[][] {
+            new float[]{0.299f, 0.299f, 0.299f, 0, 0},
+            new float[]{0.587f, 0.587f, 0.587f, 0, 0},
+            new float[]{0.114f, 0.114f, 0.114f, 0, 0},
+            new float[]{0, 0, 0, 1, 0},
+            new float[]{0, 0, 0, 0, 1}
+        });
+        g.DrawImage(original, new Rectangle(0, 0, original.Width, original.Height),
+            0, 0, original.Width, original.Height, GraphicsUnit.Pixel,
+            new ImageAttributes { ColorMatrix = cm });
+    }
+    return gray;
+}
+```
+
+---
+
+## 7. 常见报错与排查
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `TesseractEngine` 构造抛异常，提示找不到 `chi_sim` | 路径没指向 `tessdata` 文件夹，或文件名不对 | 确认路径是 `...\tessdata`，里面文件名严格为 `chi_sim.traineddata` |
+| 识别结果为空或乱码 | 没设 `PSM_SINGLE_LINE`，或没指定中文语言 | 显式设 `tessedit_pageseg_mode=7`，语言用 `"chi_sim+eng"` |
+| 少量字符频繁识别错 | 字体小、对比度低 | 放大 2 倍 + 灰度化；如果文字范围固定，加 `tessedit_char_whitelist` 限定候选字符 |
+| VS2010 编译报错找不到 `PixConverter` | Tesseract 版本不对 | 确认用的是 **3.2.0 或 3.3.0**，不要装 4.x（4.x 的 `PixConverter` 行为/依赖有变化，且对旧框架支持更差） |
+
+整体上，**Tesseract 3.3.0 + `chi_sim+eng` + PSM_SINGLE_LINE + 灰度放大** 这套组合，在你当前的 VS2010 / .NET 4.0 / FlaUI 1.3.0 环境下是改动最小、最快能落地的按钮文字变化检测方案。如果实际识别率仍不理想，再考虑引入 `tessedit_char_whitelist` 把候选字符限定在按钮上可能出现的几个词以内。

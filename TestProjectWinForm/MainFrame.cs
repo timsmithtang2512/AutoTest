@@ -12,7 +12,9 @@ using System.Runtime.InteropServices; //用於與非託管代碼(win 32 API,Com�
 using System.IO;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.AutomationElements.Infrastructure; // AutomationElement（1.3.0 位置）
 using FlaUI.Core.Conditions;
+using FlaUI.Core.Definitions;          // ControlType
 using FlaUI.UIA2;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -47,11 +49,26 @@ namespace TestProjectWinForm
         [DllImport("user32.dll")]
         static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        //鼠標瞬間移動到坐標
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetCursorPos(int x, int y);
+
+        //設置窗口在頂層
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd,IntPtr hWndInsertAfter,int X, int Y, int cx, int cy,uint uFlags);
+
         const uint WM_COMMAND = 0x0111;
         const uint WM_KEYDOWN = 0x0100;
         const uint WM_KEYUP = 0x0101;
         const int VK_RETURN = 0x0D;
         const int SW_RESTORE = 9;
+
+        //設置窗口在頂層
+        private const int HWND_TOPMOST = -1;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOACTIVATE = 0x0010;
+
 
 
         //構造函數,用於初始化
@@ -195,7 +212,7 @@ namespace TestProjectWinForm
             }
             finally
             {
-                Cleanup();
+                //Cleanup();
                 // 启用按钮
                 btnExecute.Enabled = true;
                 btnExecuteAll.Enabled = true;
@@ -207,6 +224,7 @@ namespace TestProjectWinForm
         /// </summary>
         private void ExecuteStep(TestStep step)
         {
+            int timeout = 0;
             switch (step.Action)
             {
                 case "LaunchApplication":
@@ -216,22 +234,59 @@ namespace TestProjectWinForm
                     break;
 
                 case "WaitForWindow":
-                    string title = step.Parameters["title"];
-                    int timeout = int.Parse(step.Parameters["timeout"]);
-                    _mainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(timeout));
-
-                    if (_mainWindow != null)
                     {
-                        AppendLog(string.Format("获取窗口: {0}", _mainWindow.Title));
-                    }
-                    else
-                    {
-                        AppendLog("获取窗口失败: 未找到窗口");
-                        throw new Exception(string.Format("未找到标题为 '{0}' 的窗口", title));
+                        // ---------- 1) 参数（安全解析，绝不再抛 FormatException）----------
+                        string title = step.Parameters.ContainsKey("title")
+                            ? (step.Parameters["title"] ?? "").Trim()
+                            : "";
+
+                        timeout = ParseIntParam(step.Parameters, "timeout", 10);
+                        if (timeout <= 0) timeout = 10;
+
+                        if (string.IsNullOrEmpty(title))
+                            throw new ArgumentException("WaitForWindow 必须提供非空 title 参数");
+
+                        AppendLog(string.Format("WaitForWindow: title='{0}', timeout={1}s", title, timeout));
+
+                        // ---------- 2) 轮询查找窗口 ----------
+                        DateTime deadline = DateTime.Now.AddSeconds(timeout);
+                        FlaUI.Core.AutomationElements.Infrastructure.AutomationElement found = null;
+
+                        while (DateTime.Now < deadline && found == null)
+                        {
+                            // 路径①：当前 _app 的顶层窗口（快、同进程）
+                            found = FindTopLevelWindowByTitle(title);
+
+                            // 路径②：桌面全局兜底（跨进程也能命中，较慢）
+                            if (found == null)
+                                found = FindDesktopWindowByTitle(title);
+
+                            if (found == null)
+                                System.Threading.Thread.Sleep(300);
+                        }
+
+                        if (found == null)
+                        {
+                            string msg = string.Format("超时 {0}s 未找到标题为 '{1}' 的窗口", timeout, title);
+                            AppendLog(msg);
+                            throw new Exception(msg);
+                        }
+
+                        // ---------- 3) 转 Window、必要时重新 Attach ----------
+                        _mainWindow = found.AsWindow();
+
+                        int pid = GetProcessIdSafe(found);
+                        if (pid > 0 && (_app == null || _app.HasExited || _app.ProcessId != pid))
+                        {
+                            _app = FlaUI.Core.Application.Attach(pid);
+                            AppendLog(string.Format("已重新 Attach 到进程 {0}", pid));
+                        }
+
+                        AppendLog(string.Format("获取窗口成功: '{0}' (pid={1})", SafeName(_mainWindow), pid));
+                        break;
                     }
 
 
-                    //AppendLog(string.Format("获取窗口: {0}", _mainWindow.Title));
                     break;
 
                     //扎到并進行點擊
@@ -244,6 +299,7 @@ namespace TestProjectWinForm
                     //給指定窗口發送命令
                     // 关键：向主窗口发送 WM_COMMAND，wParam 低位为控件 ID
                 case "wm_command":
+
                     timeout = int.Parse(step.Parameters["timeout"]);
                     _mainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(timeout));
                     if (_mainWindow == null)
@@ -281,17 +337,32 @@ namespace TestProjectWinForm
                 case "click_at":
                     timeout = int.Parse(step.Parameters["timeout"]);
                     _mainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(timeout));
+
                     if (_mainWindow == null)
                     {
                         AppendLog(string.Format("未获取到主窗口"));
                         return;
                     }
+
+                    SetWindowTopmost(_mainWindow, true);   // 点击前置顶
+                    System.Threading.Thread.Sleep(100); 
+
                     var rect = _mainWindow.Properties.BoundingRectangle.ValueOrDefault;
                     int x = (int)rect.Left + step.OffsetX;
                     int y = (int)rect.Top + step.OffsetY;
-                    FlaUI.Core.Input.Mouse.MoveTo(x, y);
+
+                    // 直接瞬间把光标放到目标点
+                    SetCursorPos(x, y);
+                    // 稍等一下，确保光标位置已生效，再点击
+                    System.Threading.Thread.Sleep(50);
+
+                    //FlaUI.Core.Input.Mouse.MoveTo(x, y); //可看到鼠標移動軌跡
                     FlaUI.Core.Input.Mouse.Click(FlaUI.Core.Input.MouseButton.Left);
                     AppendLog(string.Format("--> 已点击坐标 ({0},{1})",x,y));
+
+                    SetWindowTopmost(_mainWindow, false);// 点击后取消置顶
+                    //點擊后等待200ms,讓窗口有響應時間
+                    System.Threading.Thread.Sleep(2000);
                     break;
 
 
@@ -420,6 +491,108 @@ namespace TestProjectWinForm
         {
 
         }
+
+
+        //case "WaitForWindow":辅助方法
+        private static int ParseIntParam(Dictionary<string, string> p, string key, int defaultValue)
+        {
+            if (p == null || !p.ContainsKey(key)) return defaultValue;
+
+            string raw = (p[key] ?? "").Trim();
+            if (raw.Length == 0) return defaultValue;
+
+            int v;
+            if (int.TryParse(raw, out v)) return v;
+
+            // 兼容 YAML 数字被转成 "10.0" 的情况
+            double d;
+            if (double.TryParse(raw, out d)) return (int)d;
+
+            throw new Exception(string.Format(
+                "参数 '{0}' 的值 '{1}' 不是有效整数（原始长度={2}）",
+                key, raw, raw.Length));
+        }
+
+        private FlaUI.Core.AutomationElements.Infrastructure.AutomationElement
+            FindTopLevelWindowByTitle(string title)
+        {
+            if (_app == null || _app.HasExited) return null;
+
+            try
+            {
+                foreach (var w in _app.GetAllTopLevelWindows(_automation))
+                {
+                    try
+                    {
+                        if (w.Name == title && !w.Properties.IsOffscreen.ValueOrDefault)
+                            return w;   // Window → AutomationElement 隐式向上转型
+                    }
+                    catch { /* 失效元素跳过 */ }
+                }
+            }
+            catch { /* _app 已失效 */ }
+
+            return null;
+        }
+
+        private FlaUI.Core.AutomationElements.Infrastructure.AutomationElement
+            FindDesktopWindowByTitle(string title)
+        {
+            try
+            {
+                var desktop = _automation.GetDesktop();
+                return desktop.FindFirstDescendant(cf =>
+                    cf.ByName(title).And(cf.ByControlType(ControlType.Window)));
+            }
+            catch (Exception ex)
+            {
+                // 桌面查找容易在旧窗口刚关闭时抛 ElementNotAvailable / COM 超时，
+                // 只记录、不中断轮询。
+                AppendLog("桌面查找异常: " + ex.Message);
+                return null;
+            }
+        }
+
+        private int GetProcessIdSafe(
+            FlaUI.Core.AutomationElements.Infrastructure.AutomationElement el)
+        {
+            try { return el.Properties.ProcessId.ValueOrDefault; }
+            catch { return 0; }
+        }
+
+        private string SafeName(
+            FlaUI.Core.AutomationElements.Infrastructure.AutomationElement el)
+        {
+            try { return el.Name; }
+            catch { return "<unavailable>"; }
+        }
+
+
+        //窗口置頂方法
+        private void SetWindowTopmost(Window window, bool topmost)
+        {
+            if (window == null) return;
+
+            try
+            {
+                IntPtr handle = window.Properties.NativeWindowHandle.ValueOrDefault;
+                if (handle == IntPtr.Zero) return;
+
+                // topmost 为 true 时使用 HWND_TOPMOST，否则使用 HWND_NOTOPMOST ( -2 )
+                IntPtr insertAfter = topmost ? new IntPtr(HWND_TOPMOST) : new IntPtr(-2);
+
+                SetWindowPos(
+                    handle,
+                    insertAfter,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("设置窗口置顶状态失败: " + ex.Message);
+            }
+        }
+
   
      }
 }
