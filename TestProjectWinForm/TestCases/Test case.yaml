@@ -1,0 +1,42 @@
+TestCases:
+  - Name: "用例1:SAnt程式自動開啟"     
+    Description: "自動開啟SAnt程式"  #点击AutoTest按鈕測試,路徑要用單引號,冒號後面要有空格
+    Steps:                           
+      - Action: "LaunchApplication"  
+        Parameters:                  
+          appPath: 'C:\Users\G1658117\Desktop\PGM_Temp\BUF_C4001_Build_ERS6_VSR37_LWS24_V1.6.10.5_Judit_20261028\SAnt_x64.exe'
+
+      - Action: "WaitForWindow"      #等待CaseSel窗口出現
+        Parameters:                  
+          title: "CaseSel"           
+          timeout: "5"               
+          
+      - Action: "click_at"           #組合信息框確定按鈕點擊
+        OffsetX: 367                 #按鈕中心相對於程式窗口的偏移坐標
+        OffsetY: 151                 #按鈕中心相對於程式窗口的偏移坐標
+        Parameters:                  
+          timeout: "2"               
+          
+      - Action: "WaitForWindow"      #等待SAnt_x64窗口出現
+        Parameters:
+          title: "SAnt_x64"
+          timeout: "10"  
+ 
+      - Action: "FindAndClick"       #等待內存告警按鈕出現并點擊
+        Parameters:
+          controlType: "Button"
+          name: "確定"
+          
+      - Action: "WaitForWindow"      #等待測試程式出現
+        Parameters:
+          title: "tw_sant_MainWnd"
+          timeout: "20"
+          
+  - Name: "用例2:OP模式AutoTest壓測"     
+    Description: "開啟程式后自動點擊AutoTest按鈕"
+    Steps:                           
+      - Action: "click_at"            #重複點擊AutoTest按鈕
+        OffsetX: 1210                 #按鈕中心相對於程式窗口的偏移坐標
+        OffsetY: 693                  #按鈕中心相對於程式窗口的偏移坐標
+        Parameters:                  
+          timeout: "5"               

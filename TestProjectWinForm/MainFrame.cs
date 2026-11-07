@@ -70,6 +70,8 @@ namespace TestProjectWinForm
         private const uint SWP_NOACTIVATE = 0x0010;
 
 
+        //窗口關閉確認標誌
+        private bool _isConfirmedClose = false;
 
         //構造函數,用於初始化
         public AutoTestTool()
@@ -79,6 +81,11 @@ namespace TestProjectWinForm
             // 初始禁用执行按钮
             btnExecute.Enabled = false;
             btnExecuteAll.Enabled = false;
+            btnStress_test.Enabled = false;
+            textBox_StressTimes.Enabled = false;
+
+
+
         }
 
         #region 事件处理
@@ -88,6 +95,7 @@ namespace TestProjectWinForm
         {
             using (OpenFileDialog ofd = new OpenFileDialog())
             {
+                ofd.InitialDirectory = AppDomain.CurrentDomain.BaseDirectory; //讓打開的默認路徑是當前程式的目錄
                 ofd.Filter = "YAML 文件|*.yaml;*.yml|所有文件|*.*";
                 ofd.Title = "选择测试用例文件";
                 if (ofd.ShowDialog() == DialogResult.OK)
@@ -170,7 +178,9 @@ namespace TestProjectWinForm
 
                 btnExecute.Enabled = true;
                 btnExecuteAll.Enabled = true;
-                AppendLog(string.Format("成功加载{0}个测试用例from{1}",_testCases.Count,Path.GetFileName(filePath)));
+                btnStress_test.Enabled = true;
+                textBox_StressTimes.Enabled = true;
+                AppendLog(string.Format("成功加载{0}个测试用例from {1}",_testCases.Count,Path.GetFileName(filePath)));
             }
             catch (Exception ex)
             {
@@ -186,6 +196,9 @@ namespace TestProjectWinForm
             // 禁用按钮，防止重复点击
             btnExecute.Enabled = false;
             btnExecuteAll.Enabled = false;
+            btnStress_test.Enabled = false;
+            textBox_StressTimes.Enabled = false;
+
 
             try
             {
@@ -216,6 +229,8 @@ namespace TestProjectWinForm
                 // 启用按钮
                 btnExecute.Enabled = true;
                 btnExecuteAll.Enabled = true;
+                btnStress_test.Enabled = true;
+                textBox_StressTimes.Enabled = true;
             }
         }
 
@@ -361,8 +376,8 @@ namespace TestProjectWinForm
                     AppendLog(string.Format("--> 已点击坐标 ({0},{1})",x,y));
 
                     SetWindowTopmost(_mainWindow, false);// 点击后取消置顶
-                    //點擊后等待200ms,讓窗口有響應時間
-                    System.Threading.Thread.Sleep(2000);
+                    //點擊后等待timeout ms,讓窗口有響應時間
+                    System.Threading.Thread.Sleep(timeout*1000);
                     break;
 
 
@@ -442,8 +457,8 @@ namespace TestProjectWinForm
             {
                 if (_app != null && !_app.HasExited)
                 {
-                    _app.Close();
-                    AppendLog("已关闭应用");
+                    //_app.Close();
+                    AppendLog("測試完畢,請手動關閉应用");
                 }
             }
             catch { /* 忽略 */ }
@@ -454,6 +469,7 @@ namespace TestProjectWinForm
                 if (_automation != null)
                     {
                      _automation.Dispose();
+
                     }
                 //_automation?.Dispose();
                 _automation = null;
@@ -591,6 +607,83 @@ namespace TestProjectWinForm
             {
                 AppendLog("设置窗口置顶状态失败: " + ex.Message);
             }
+        }
+
+        private void Stress_test_Click(object sender, EventArgs e)
+        {
+            if (lstTestCases.SelectedItem == null)
+            {
+                MessageBox.Show("请先选择一个测试用例", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+
+            int number;
+            if (int.TryParse(textBox_StressTimes.Text, out number) && number >= 1)
+            {
+                // 轉換成功，number 就是你要的數字
+
+                //MessageBox.Show(string.Format("你輸入的數字是：{0}", number));
+                //MessageBox.Show("乘以 2 = {number * 2}");
+
+
+                string selectedName = lstTestCases.SelectedItem.ToString();
+                var testCase = _testCases.FirstOrDefault(tc => tc.Name == selectedName);
+                if (testCase != null)
+                {
+
+                    for (int i = 1; i <= number; i++)
+                    {
+                        
+                        ExecuteTestCase(testCase);
+                        System.Threading.Thread.Sleep(1000);
+
+                        //MessageBox.Show(string.Format("當前測試次數：{0}-{1}", number,i));
+                    }
+                }
+
+            }
+            else
+            {
+                MessageBox.Show("請輸入有效的整數！");
+
+            }
+
+        }
+
+
+
+        private void textBox_StressTimes_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void AutoTestTool_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            // 已確認過，或系統關機（避免卡住關機流程），直接放行
+            if (_isConfirmedClose || e.CloseReason == CloseReason.WindowsShutDown)
+                return;
+
+            var result = MessageBox.Show(
+                "確定要關閉程式嗎？",
+                "確認",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);   // 預設焦點在「否」，防誤觸
+
+            if (result == DialogResult.No)
+            {
+                e.Cancel = true;      // 取消關閉
+            }
+            else
+            {
+                Cleanup();
+                System.Threading.Thread.Sleep(200);
+                _isConfirmedClose = true;   // 記住已確認
+            }
+
+
+
         }
 
   

@@ -1,0 +1,13 @@
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\AutoTestTool.exe
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\AutoTestTool.pdb
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\FlaUI.Core.dll
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\FlaUI.UIA2.dll
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\YamlDotNet.dll
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\FlaUI.Core.xml
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\FlaUI.UIA2.xml
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\bin\Release\YamlDotNet.pdb
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\obj\x86\Release\TestProjectWinForm.AutoTestTool.resources
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\obj\x86\Release\AutoTestTool.Properties.Resources.resources
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\obj\x86\Release\AutoTestTool.csproj.GenerateResource.Cache
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\obj\x86\Release\AutoTestTool.exe
+E:\Vs2010_CSharp\TestProjectWinForm\TestProjectWinForm\obj\x86\Release\AutoTestTool.pdb

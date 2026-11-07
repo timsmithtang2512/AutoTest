@@ -1,0 +1,33 @@
+TestCases:
+  - Name: "SAnt程式自動開啟用例"     -用例名稱
+    Description: "自動開啟SAnt程式"  -用例描述             #点击AutoTest按鈕測試,路徑要用單引號,冒號後面要有空格
+    Steps:                           -執行步驟
+      - Action: "LaunchApplication"  -步驟1,程式運行
+        Parameters:                  -步驟1參數,程式路徑
+          appPath: 'C:\Users\G1658117\Desktop\PGM_Temp\BUF_C6.0_Build_ERS5_VSR8_LWS7_V1.5.0C.2p1_JuditLCD_20260328\SAnt_x64.exe'
+
+      - Action: "WaitForWindow"      -步驟2,等待窗口出現
+        Parameters:                  
+          title: "CaseSel"           -步驟2參數,窗口名稱
+          timeout: "5"               -步驟2參數,等待時間5s
+          
+      - Action: "click_at"           -步驟3,點擊坐標                     #組合信息框確定按鈕點擊
+        OffsetX: 367                 -步驟3,x偏移坐標                       #按鈕中心相對於程式窗口的偏移坐標
+        OffsetY: 151                 -步驟3,y偏移坐標                       #按鈕中心相對於程式窗口的偏移坐標
+        Parameters:                  
+          timeout: "2"               -步驟3參數,等待時間2s
+          
+      - Action: "WaitForWindow"
+        Parameters:
+          title: "SAnt_x64"
+          timeout: "10"  
+ 
+      - Action: "FindAndClick" 
+        Parameters:
+          controlType: "Button"
+          name: "確定"
+          
+      - Action: "WaitForWindow"
+        Parameters:
+          title: "tw_sant_MainWnd"
+          timeout: "20"
